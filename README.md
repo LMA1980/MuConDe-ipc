@@ -86,4 +86,4 @@ pub struct IpcHeader {
 
 ## License
 
-Licensed under the GNU Affero General Public License v3.0 (AGPL-3.0-only). See LICENSE for details.
+Licensed under the GNU Lesser General Public License v3.0 with the LGPL-3.0 Linking Exception (LGPL-3.0-only WITH LGPL-3.0-linking-exception). See LICENSE for details.
