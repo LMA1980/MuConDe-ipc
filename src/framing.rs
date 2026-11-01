@@ -19,6 +19,24 @@ pub const MSG_TYPE_IT_REPORT: u16 = 0x08;
 pub const MSG_TYPE_ARTIFACT_TAINT: u16 = 0x09;
 pub const MSG_TYPE_HEALTH_PROBE: u16 = 0x0A;
 pub const MSG_TYPE_HEARTBEAT: u16 = 0x0B;
+/// Added in 0.2.0 (additive): per-test [`crate::control::IntegrationTestProgress`] updates.
+///
+/// Discriminants `0x01..=0x0B` are frozen. Receivers must dispatch on `msg_type` and skip
+/// frames whose type they do not recognise (see [`is_legacy_msg_type`]).
+pub const MSG_TYPE_IT_PROGRESS: u16 = 0x0C;
+
+/// Returns `true` for the discriminants defined by protocol 0.1.x (`0x01..=0x0B`).
+///
+/// A 0.1.x peer only understands these types; any other frame (such as
+/// [`MSG_TYPE_IT_PROGRESS`]) is skipped by its dispatch loop without decoding the payload.
+pub fn is_legacy_msg_type(msg_type: u16) -> bool {
+    (MSG_TYPE_LEASE_REQ..=MSG_TYPE_HEARTBEAT).contains(&msg_type)
+}
+
+/// Returns `true` for every discriminant known to this crate version.
+pub fn is_known_msg_type(msg_type: u16) -> bool {
+    is_legacy_msg_type(msg_type) || msg_type == MSG_TYPE_IT_PROGRESS
+}
 
 // Flags
 pub const FLAG_COMPRESSED: u32 = 0x01;
