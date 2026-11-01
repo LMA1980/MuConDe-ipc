@@ -14,6 +14,10 @@ pub const FORY_ID_ARTIFACT_TAINT: u32 = 9;
 pub const FORY_ID_HEALTH_PROBE: u32 = 10;
 pub const FORY_ID_HEARTBEAT: u32 = 11;
 pub const FORY_ID_DEPLOYMENT_SLOT: u32 = 12;
+/// Added in 0.2.0 (additive). IDs 1–12 above are frozen and must never be renumbered.
+pub const FORY_ID_IT_PROGRESS: u32 = 13;
+/// Added in 0.2.0 (additive). Registration ID for the [`TestState`] enum.
+pub const FORY_ID_TEST_STATE: u32 = 14;
 
 // Full-name aliases for ergonomic downstream imports
 pub const FORY_ID_DEPLOYMENT_LEASE_REQUEST: u32 = FORY_ID_LEASE_REQ;
@@ -27,6 +31,7 @@ pub const FORY_ID_INTEGRATION_TEST_REPORT: u32 = FORY_ID_IT_REPORT;
 pub const FORY_ID_ARTIFACT_TAINT_NOTIFICATION: u32 = FORY_ID_ARTIFACT_TAINT;
 pub const FORY_ID_HEALTH_PROBE_TELEMETRY: u32 = FORY_ID_HEALTH_PROBE;
 pub const FORY_ID_HEARTBEAT_TELEMETRY: u32 = FORY_ID_HEARTBEAT;
+pub const FORY_ID_INTEGRATION_TEST_PROGRESS: u32 = FORY_ID_IT_PROGRESS;
 
 #[derive(ForyEnum, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Default)]
 pub enum DeploymentSlot {
@@ -114,6 +119,46 @@ pub struct IntegrationTestReport {
     pub log_excerpt: Option<String>,
 }
 
+/// Live state of a single integration test inside a deployment gate.
+#[derive(ForyEnum, Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Default, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum TestState {
+    /// Declared by the contract but not started yet.
+    #[default]
+    Pending,
+    /// Currently executing on the candidate slot.
+    Running,
+    /// Completed successfully.
+    Passed,
+    /// Completed with a failure.
+    Failed,
+}
+
+impl TestState {
+    /// Returns `true` once the test has reached a final state (`Passed` or `Failed`).
+    pub fn is_terminal(self) -> bool {
+        matches!(self, Self::Passed | Self::Failed)
+    }
+}
+
+/// Per-test progress update emitted by `MuConDe-agent` while the integration gate runs.
+///
+/// Sent as [`crate::framing::MSG_TYPE_IT_PROGRESS`] frames before the aggregate
+/// [`IntegrationTestReport`], which remains the final verdict. Peers built against
+/// 0.1.x do not know this message type and skip the frame (they dispatch on
+/// `IpcHeader::msg_type` before attempting to decode the payload).
+#[derive(ForyStruct, Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct IntegrationTestProgress {
+    pub deployment_id: String,
+    pub test_name: String,
+    /// `true` when a failure of this test must block promotion (`[C]` in the console).
+    pub critical: bool,
+    pub state: TestState,
+    /// Elapsed time for this test; `0` while `Pending`.
+    pub duration_ms: u64,
+    pub timestamp_epoch_ms: u64,
+}
+
 #[derive(ForyStruct, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct ArtifactTaintNotification {
     pub deployment_id: String,
@@ -158,5 +203,8 @@ pub fn create_fory_runtime() -> Result<Fory, IpcError> {
     fory.register::<HealthProbeTelemetry>(FORY_ID_HEALTH_PROBE)?;
     fory.register::<HeartbeatTelemetry>(FORY_ID_HEARTBEAT)?;
     fory.register::<DeploymentSlot>(FORY_ID_DEPLOYMENT_SLOT)?;
+    // 0.2.0 additions: appended with new IDs, never renumbering the frozen set above.
+    fory.register::<TestState>(FORY_ID_TEST_STATE)?;
+    fory.register::<IntegrationTestProgress>(FORY_ID_IT_PROGRESS)?;
     Ok(fory)
 }

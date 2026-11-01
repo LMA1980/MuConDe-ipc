@@ -57,18 +57,48 @@ pub struct IpcHeader {
 
 ## Message Contracts Catalog
 
-| Message Type | Discriminant | Direction | Description |
-|---|---|---|---|
-| `LeaseAcquireRequest` | `0x0001` | Controller ➔ Agent | Requests exclusive TTL deployment lease on target node |
-| `LeaseAcquireResponse`| `0x0002` | Agent ➔ Controller | Grants or refuses lease with assigned `lease_id` and expiry timestamp |
-| `StageDeploymentRequest` | `0x0003` | Controller ➔ Agent | Directs staging of candidate binary into Slot B with Btrfs snapshot |
-| `StageDeploymentResponse`| `0x0004` | Agent ➔ Controller | Acknowledges snapshot creation and stage preparation |
-| `HealthProbeTelemetry` | `0x0005` | Agent ➔ Controller | Streams latency, exit codes, and health probe check results |
-| `PromoteSlotRequest` | `0x0006` | Controller ➔ Agent | Directs atomic swap promoting Slot B to active Slot A |
-| `PromoteSlotResponse`| `0x0007` | Agent ➔ Controller | Confirms promotion completion and new active subvolume ID |
-| `RollbackSlotRequest` | `0x0008` | Controller ➔ Agent | Commands immediate atomic rollback to pre-deployment snapshot |
-| `RollbackSlotResponse`| `0x0009` | Agent ➔ Controller | Confirms subvolume restoration and service reload |
-| `HeartbeatTelemetry` | `0x000A` | Agent ➔ Controller | Periodic node metrics, idle runner status, and lease liveness |
+Every frame carries a `msg_type` discriminant in the header; the payload is the matching
+fory-encoded struct registered under the listed fory ID (see `create_fory_runtime`).
+
+| Message | `msg_type` | fory ID | Direction | Description |
+|---|---|---|---|---|
+| `DeploymentLeaseRequest` | `0x01` | 1 | Controller ➔ Coordinator | Requests an exclusive TTL deployment lease on a target node |
+| `DeploymentLeaseGrant` | `0x02` | 2 | Coordinator ➔ Controller | Grants or refuses the lease with `lease_id`, slots and expiry |
+| `DeploymentLeaseRevoke` | `0x03` | 3 | Controller ➔ Agent | Revokes a lease (pre-emption or TTL expiry) |
+| `StageDeploymentRequest` | `0x04` | 4 | Controller ➔ Agent | Stages the candidate artifact into the inactive slot |
+| `StageDeploymentResponse` | `0x05` | 5 | Agent ➔ Controller | Acknowledges staging and the subvolume path |
+| `SlotSwapCommand` | `0x06` | 6 | Controller ➔ Agent | Atomic slot swap to the candidate slot, then warmup |
+| `RollbackCommand` | `0x07` | 7 | Controller ➔ Agent | Restores `restore_slot` immediately |
+| `IntegrationTestReport` | `0x08` | 8 | Agent ➔ Controller | **Final** aggregate gate verdict |
+| `ArtifactTaintNotification` | `0x09` | 9 | Agent ➔ Controller | Taints a failed artifact digest |
+| `HealthProbeTelemetry` | `0x0A` | 10 | Agent ➔ Controller | Per-tick health probe telemetry |
+| `HeartbeatTelemetry` | `0x0B` | 11 | Agent ⇄ Controller | Node liveness and free space |
+| `DeploymentSlot` (enum) | — | 12 | — | `SlotA` / `SlotB` |
+| `IntegrationTestProgress` | `0x0C` | 13 | Agent ➔ Controller | **0.2.0.** Per-test gate progress (`Pending`/`Running`/`Passed`/`Failed`, `critical`, `duration_ms`) |
+| `TestState` (enum) | — | 14 | — | **0.2.0.** State of a single integration test |
+
+### Registry rules (additive only)
+
+- fory IDs `1..=12` and discriminants `0x01..=0x0B` are **frozen**. New messages are appended with
+  new IDs; existing IDs are never renumbered or reused.
+- Receivers dispatch on `msg_type` **before** decoding the payload and skip frames they do not
+  recognise. A 0.1.x controller therefore ignores `0x0C` progress frames and still decodes the
+  final `IntegrationTestReport`; see `tests/it_progress_compat_tests.rs`. Use
+  `is_legacy_msg_type()` / `is_known_msg_type()` to implement the same rule.
+- `IntegrationTestReport` stays the final verdict. `IntegrationTestProgress` is advisory live state
+  for UIs and the controller's gate tracker.
+
+### Downstream dependency update (agent and controller)
+
+`MuConDe-agent` and `MuConDe-controller` depend on this crate by git branch. To consume a new
+protocol version:
+
+1. While the ipc change is still an open PR, a downstream feature branch may temporarily point at
+   the ipc feature branch: `muconde-ipc = { git = "https://github.com/LMA1980/MuConDe-ipc.git", branch = "feat/<name>" }`.
+2. After the ipc PR merges, switch the dependency back to `branch = "main"` and run
+   `cargo update -p muconde-ipc` so `Cargo.lock` pins the merged commit.
+3. Deploy in order: controller first (it tolerates both old and new agents), then agents. Old
+   controllers simply skip the new frames, so either order is safe for 0.2.0.
 
 ---
 
